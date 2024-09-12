@@ -79,7 +79,7 @@
 
   <script w-tid="9">
     const search = new URLSearchParams(location.search);
-    const moreTpsRound = search.round;
+    const moreTpsRound = search.get("round");
     let isTestnet;
     if (moreTpsRound?.endsWith(".testnet")) {
       isTestnet = true;
@@ -330,80 +330,88 @@
   </script>
 
   <script w-tid="10">
-    let participantScores = new Map();
-    let catchingUp = true;
+    if (moreTpsRound) {
+      let participantScores = new Map();
+      let catchingUp = true;
 
-    function updateLeaderboard() {
-      const leaderboardElement = document.getElementById('participants');
-      leaderboardElement.innerHTML = '';
+      function updateLeaderboard() {
+        const leaderboardElement = document.getElementById('participants');
+        leaderboardElement.innerHTML = '';
 
-      const sortedParticipants = [...participantScores.entries()]
-        .sort((a, b) => b[1] - a[1]);
+        const sortedParticipants = [...participantScores.entries()]
+          .sort((a, b) => b[1] - a[1]);
 
-      sortedParticipants.forEach(([participant, score]) => {
-        const li = document.createElement('li');
-        li.innerHTML = `${participant} <span class="score">${score}</span>`;
-        leaderboardElement.appendChild(li);
-      });
-      if (catchingUp) {
-        leaderboardElement.innerHTML = "<i>Counting on client side... (stress testing Intear APIs because why not)</i>" + leaderboardElement.innerHTML;
-      }
-    }
-
-    function incrementScore(participant) {
-      const currentScore = participantScores.get(participant) || 0;
-      participantScores.set(participant, currentScore + 1);
-    }
-
-    async function fetchData(nanosec = 0) {
-      try {
-        const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/moretps?blocks=1&start_block_timestamp_nanosec=${nanosec}`);
-        const data = await response.json();
-
-        data.forEach(item => {
-          if (item.is_success) {
-            incrementScore(item.claimed_parent_account_id);
-          }
+        sortedParticipants.forEach(([participant, score]) => {
+          const li = document.createElement('li');
+          li.innerHTML = `${participant} <span class="score">${score}</span>`;
+          leaderboardElement.appendChild(li);
         });
-        updateLeaderboard();
-
-        if (data.length > 0) {
-          const lastTimestamp = BigInt(data[data.length - 1].block_timestamp_nanosec);
-          await fetchData(lastTimestamp + 1n);
+        if (catchingUp) {
+          leaderboardElement.innerHTML = "<i>Counting on client side... (stress testing Intear APIs because why not)</i>" + leaderboardElement.innerHTML;
         }
-      } catch (error) {
-        console.error('Error fetching data:', error);
       }
-    }
 
-    function connectLeaderboardWebSocket() {
-      const socket = new WebSocket(`${wsEventsApiHost}/${wsEventsApiEvents}/moretps`);
+      function incrementScore(participant) {
+        const currentScore = participantScores.get(participant) || 0;
+        participantScores.set(participant, currentScore + 1);
+      }
 
-      socket.onmessage = (event) => {
-        const data = JSON.parse(event.data);
-        if (data.is_success) {
-          incrementScore(data.claimed_parent_account_id);
+      async function fetchData(nanosec = 0) {
+        try {
+          const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/moretps?blocks=1&start_block_timestamp_nanosec=${nanosec}&round_parent_account_id=${moreTpsRound}`);
+          const data = await response.json();
+
+          data.forEach(item => {
+            if (item.is_success) {
+              incrementScore(item.claimed_parent_account_id);
+            }
+          });
           updateLeaderboard();
+
+          if (data.length > 0) {
+            const lastTimestamp = BigInt(data[data.length - 1].block_timestamp_nanosec);
+            await fetchData(lastTimestamp + 1n);
+          }
+        } catch (error) {
+          console.error('Error fetching data:', error);
         }
-      };
+      }
 
-      socket.onclose = () => {
-        console.log('WebSocket connection closed. Reconnecting...');
-        setTimeout(connectLeaderboardWebSocket, 1000);
-      };
+      function connectLeaderboardWebSocket() {
+        const socket = new WebSocket(`${wsEventsApiHost}/${wsEventsApiEvents}/moretps`);
 
-      socket.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        socket.close();
-      };
+        socket.onopen = (event) => {
+          socket.send(JSON.stringify({round_parent_account_id: moreTpsRound}));
+        }
+
+        socket.onmessage = (event) => {
+          const data = JSON.parse(event.data);
+          if (data.is_success) {
+            incrementScore(data.claimed_parent_account_id);
+            updateLeaderboard();
+          }
+        };
+
+        socket.onclose = () => {
+          console.log('WebSocket connection closed. Reconnecting...');
+          setTimeout(connectLeaderboardWebSocket, 1000);
+        };
+
+        socket.onerror = (error) => {
+          console.error('WebSocket error:', error);
+          socket.close();
+        };
+      }
+
+      // Start fetching data and connect to WebSocket
+      fetchData().then(() => {
+        catchingUp = false;
+        updateLeaderboard();
+        connectLeaderboardWebSocket();
+      });
+    } else {
+      document.getElementById('leaderboard').style.display = 'none';
     }
-
-    // Start fetching data and connect to WebSocket
-    fetchData().then(() => {
-      catchingUp = false;
-      updateLeaderboard();
-      connectLeaderboardWebSocket();
-    });
   </script>
 </body>
 
