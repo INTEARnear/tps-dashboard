@@ -364,7 +364,7 @@
           data.forEach(item => {
             if (item.is_success) {
               incrementScore(item.claimed_parent_account_id);
-            }
+            } else if (!participantScores.get(item.claimed_parent_account_id)) participantScores.set(item.claimed_parent_account_id, 0)
           });
           updateLeaderboard();
 
@@ -389,7 +389,7 @@
           if (data.is_success) {
             incrementScore(data.claimed_parent_account_id);
             updateLeaderboard();
-          }
+          } else if (!participantScores.get(data.claimed_parent_account_id)) participantScores.set(data.claimed_parent_account_id, 0)
         };
 
         socket.onclose = () => {
