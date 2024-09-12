@@ -285,10 +285,10 @@
       }
 
       chart.data.labels = blockData.map(b => b.block_height);
-      chart.data.datasets[0].data = blockData.map(b => b.transaction_count);
-      chart.data.datasets[1].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).tps);
-      chart.data.datasets[2].data = blockData.map(b => b.receipt_count);
-      chart.data.datasets[3].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).rps);
+      chart.data.datasets[0].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).tps);
+      chart.data.datasets[1].data = blockData.map(b => b.transaction_count);
+      chart.data.datasets[2].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).rps);
+      chart.data.datasets[3].data = blockData.map(b => b.receipt_count);
 
       chart.update('none');
     }
