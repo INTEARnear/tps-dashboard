@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html w-tid="0">
+
+<head w-tid="1">
+  <title w-tid="3">TPS</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js" crossOrigin="anonymous" w-tid="4"></script>
+  <style w-tid="5">
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      height: 100vh;
+      margin: 0;
+      background-color: #f0f0f0;
+    }
+
+    #chart-container {
+      width: 80%;
+      max-width: 800px;
+      background-color: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+    }
+
+    #metricsChart {
+      cursor: pointer;
+    }
+
+    #leaderboard {
+      background-color: white;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+      padding: 20px;
+      max-width: 600px;
+      margin: 0 auto;
+      margin-top: 20px;
+    }
+
+    h1 {
+      text-align: center;
+      color: #333;
+    }
+
+    #participants {
+      list-style-type: none;
+      padding: 0;
+    }
+
+    #participants li {
+      display: flex;
+      justify-content: space-between;
+      padding: 10px 0;
+      border-bottom: 1px solid #eee;
+    }
+
+    #participants li:last-child {
+      border-bottom: none;
+    }
+
+    .score {
+      font-weight: bold;
+      color: #4CAF50;
+    }
+  </style>
+</head>
+
+<body w-tid="6">
+  <div id="chart-container" w-tid="7">
+    <canvas id="metricsChart" w-tid="8"></canvas>
+  </div>
+
+  <div id="leaderboard" w-tid="6">
+    <h1 w-tid="7">MoreTPS Leaderboard</h1>
+    <ul id="participants" w-tid="8"></ul>
+  </div>
+
+  <script w-tid="9">
+    const search = new URLSearchParams(location.search);
+    const moreTpsRound = search.round;
+    let isTestnet;
+    if (moreTpsRound?.endsWith(".testnet")) {
+      isTestnet = true;
+    } else if (moreTpsRound?.endsWith(".near")) {
+      isTestnet = false;
+    } else if (location.href.includes("https://tps.intear.tech")) {
+      isTestnet = false;
+    } else {
+      isTestnet = true;
+    }
+    const isDebug = !location.href.includes("https://tps.intear.tech");
+    const eventsApiHost = isDebug ? "http://localhost:8080" : "https://events.intear.tech";
+    const eventsApiQuery = isTestnet ? "query-testnet" : "query";
+    const wsEventsApiHost = isDebug ? "ws://localhost:4242" : "wss://ws-events.intear.tech";
+    const wsEventsApiEvents = isTestnet ? "events-testnet" : "events";
+
+    const ctx = document.getElementById('metricsChart').getContext('2d');
+    let chart;
+    let blockData = [];
+
+    const metrics = [
+      { name: 'TPS', color: '#339966', axis: 'y-axis-2' },
+      { name: 'TPB', color: '#11cc33', axis: 'y-axis-1' },
+      { name: 'RPS', color: '#3333dd', axis: 'y-axis-2' },
+      { name: 'RPB', color: '#7777ff', axis: 'y-axis-1' },
+    ];
+
+    function getVisibleMetrics() {
+      const storedMetrics = localStorage.getItem('visibleMetrics');
+      if (storedMetrics) {
+        return JSON.parse(storedMetrics);
+      } else {
+        const defaultMetrics = ['TPS'];
+        updateVisibleMetrics(defaultMetrics);
+        return defaultMetrics;
+      }
+    }
+
+    function updateVisibleMetrics(visibleMetrics) {
+      localStorage.setItem('visibleMetrics', JSON.stringify(visibleMetrics));
+      for (let i = 0; i < chart.data.datasets.length; i++) {
+        chart.data.datasets[i].hidden = !visibleMetrics.includes(chart.data.datasets[i].label);
+      }
+      chart.update();
+    }
+
+    function updateAxisVisibility() {
+      const visibleMetrics = getVisibleMetrics();
+      const showPerBlock = visibleMetrics.includes('TPB') || visibleMetrics.includes('RPB');
+      const showPerSecond = visibleMetrics.includes('TPS') || visibleMetrics.includes('RPS');
+
+      chart.options.scales['y-axis-1'].display = showPerBlock;
+      chart.options.scales['y-axis-2'].display = showPerSecond;
+      chart.update();
+    }
+
+    function initChart() {
+      chart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: metrics.map(metric => ({
+            label: metric.name,
+            data: [],
+            borderColor: metric.color,
+            tension: 0.1,
+            yAxisID: metric.axis,
+          }))
+        },
+        options: {
+          responsive: true,
+          animation: false,
+          interaction: {
+            mode: 'index',
+            intersect: false,
+          },
+          onClick: (event, elements) => {
+            if (elements.length > 0) {
+              const index = elements[0].index;
+              const block_height = blockData[index].block_height;
+              const nearblocks = isTestnet ? "https://testnet.nearblocks.io" : "https://nearblocks.io";
+              window.open(`${nearblocks}/?query=${block_height}`, '_blank');
+            }
+          },
+          scales: {
+            'y-axis-1': {
+              type: 'linear',
+              display: true,
+              position: 'left',
+              title: {
+                display: true,
+                text: 'Per Block'
+              }
+            },
+            'y-axis-2': {
+              type: 'linear',
+              display: true,
+              position: 'right',
+              title: {
+                display: true,
+                text: 'Per Second'
+              },
+              grid: {
+                drawOnChartArea: false,
+              },
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Block Height'
+              }
+            }
+          },
+          plugins: {
+            legend: {
+              onClick: (evt, item, legend) => {
+                const index = legend.chart.data.datasets.findIndex(d => d.label === item.text);
+
+                const updatedVisibleMetrics = getVisibleMetrics();
+                if (updatedVisibleMetrics.includes(item.text)) {
+                  updatedVisibleMetrics.splice(updatedVisibleMetrics.indexOf(item.text), 1);
+                } else {
+                  updatedVisibleMetrics.push(item.text);
+                }
+                updateVisibleMetrics(updatedVisibleMetrics);
+
+                updateAxisVisibility();
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function (context) {
+                  const blockIndex = context.dataIndex;
+                  const block = blockData[blockIndex];
+                  const value = context.parsed.y;
+                  const metricName = context.dataset.label;
+                  let blockTime = null;
+                  let visibleMetrics = getVisibleMetrics();
+                  visibleMetrics = metrics.filter(metric => visibleMetrics.includes(metric.name));
+                  if (metricName == visibleMetrics[visibleMetrics.length - 1].name) {
+                    const previousBlock = blockIndex > 0 ? blockData[blockIndex - 1] : null;
+                    if (previousBlock) {
+                      const currentTimestamp = parseInt(block.block_timestamp_nanosec) / 1e9;
+                      const previousTimestamp = parseInt(previousBlock.block_timestamp_nanosec) / 1e9;
+                      blockTime = currentTimestamp - previousTimestamp;
+                      blockTime = blockTime.toFixed(2);
+                    }
+                  }
+                  return blockTime
+                    ? [`${metricName}: ${value}`, `Block Time: ${blockTime}s`]
+                    : [`${metricName}: ${value}`];
+                }
+              }
+            }
+          }
+        }
+      });
+      updateVisibleMetrics(getVisibleMetrics());
+      updateAxisVisibility();
+    }
+
+    function calculateMetrics(currentBlock, previousBlock) {
+      if (!previousBlock) {
+        return {
+          transactions: currentBlock.transaction_count,
+          tps: currentBlock.transaction_count,
+          receipts: currentBlock.receipt_count,
+          rps: currentBlock.receipt_count
+        };
+      }
+
+      const currentTimestamp = parseInt(currentBlock.block_timestamp_nanosec) / 1e9;
+      const previousTimestamp = parseInt(previousBlock.block_timestamp_nanosec) / 1e9;
+      const timeDiff = currentTimestamp - previousTimestamp;
+
+      if (timeDiff <= 0) return { transactions: 0, tps: 0, receipts: 0, rps: 0 };
+
+      const tps = currentBlock.transaction_count / timeDiff;
+      const rps = currentBlock.receipt_count / timeDiff;
+
+      return {
+        transactions: currentBlock.transaction_count,
+        tps: parseFloat(tps.toFixed(2)),
+        receipts: currentBlock.receipt_count,
+        rps: parseFloat(rps.toFixed(2))
+      };
+    }
+
+    function updateChart(block) {
+      const previousBlock = blockData.length > 0 ? blockData[blockData.length - 1] : null;
+
+      blockData.push(block);
+      if (blockData.length > 200) {
+        blockData.shift();
+      }
+
+      chart.data.labels = blockData.map(b => b.block_height);
+      chart.data.datasets[0].data = blockData.map(b => b.transaction_count);
+      chart.data.datasets[1].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).tps);
+      chart.data.datasets[2].data = blockData.map(b => b.receipt_count);
+      chart.data.datasets[3].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).rps);
+
+      chart.update('none');
+    }
+
+    async function fetchInitialData() {
+      const now = Date.now();
+      const initialBlocks = 60;
+      const dataStart = now - initialBlocks * 1000;
+      const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/block_info?blocks=${initialBlocks}&start_block_timestamp_nanosec=${dataStart * 1000000}`);
+      blockData = await response.json();
+
+      chart.data.labels = blockData.map(b => b.block_height);
+      chart.data.datasets[0].data = blockData.map(b => b.transaction_count);
+      chart.data.datasets[1].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).tps);
+      chart.data.datasets[2].data = blockData.map(b => b.receipt_count);
+      chart.data.datasets[3].data = blockData.map((b, index) => calculateMetrics(b, index > 0 ? blockData[index - 1] : null).rps);
+      chart.update('none');
+    }
+
+    function connectWebSocket() {
+      const ws = new WebSocket(`${wsEventsApiHost}/${wsEventsApiEvents}/block_info`);
+
+      ws.onmessage = (event) => {
+        const block = JSON.parse(event.data);
+        updateChart(block);
+      };
+
+      ws.onclose = () => {
+        console.log('WebSocket connection closed. Reconnecting...');
+        setTimeout(connectWebSocket, 5000);
+      };
+    }
+
+    initChart();
+    fetchInitialData().then(() => {
+      connectWebSocket();
+    });
+
+  </script>
+
+  <script w-tid="10">
+    let participantScores = new Map();
+    let catchingUp = true;
+
+    function updateLeaderboard() {
+      const leaderboardElement = document.getElementById('participants');
+      leaderboardElement.innerHTML = '';
+
+      const sortedParticipants = [...participantScores.entries()]
+        .sort((a, b) => b[1] - a[1]);
+
+      sortedParticipants.forEach(([participant, score]) => {
+        const li = document.createElement('li');
+        li.innerHTML = `${participant} <span class="score">${score}</span>`;
+        leaderboardElement.appendChild(li);
+      });
+      if (catchingUp) {
+        leaderboardElement.innerHTML = "<i>Counting on client side... (stress testing Intear APIs because why not)</i>" + leaderboardElement.innerHTML;
+      }
+    }
+
+    function incrementScore(participant) {
+      const currentScore = participantScores.get(participant) || 0;
+      participantScores.set(participant, currentScore + 1);
+    }
+
+    async function fetchData(nanosec = 0) {
+      try {
+        const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/moretps?blocks=1&start_block_timestamp_nanosec=${nanosec}`);
+        const data = await response.json();
+
+        data.forEach(item => {
+          if (item.is_success) {
+            incrementScore(item.claimed_parent_account_id);
+          }
+        });
+        updateLeaderboard();
+
+        if (data.length > 0) {
+          const lastTimestamp = BigInt(data[data.length - 1].block_timestamp_nanosec);
+          await fetchData(lastTimestamp + 1n);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+      }
+    }
+
+    function connectLeaderboardWebSocket() {
+      const socket = new WebSocket(`${wsEventsApiHost}/${wsEventsApiEvents}/moretps`);
+
+      socket.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.is_success) {
+          incrementScore(data.claimed_parent_account_id);
+          updateLeaderboard();
+        }
+      };
+
+      socket.onclose = () => {
+        console.log('WebSocket connection closed. Reconnecting...');
+        setTimeout(connectLeaderboardWebSocket, 1000);
+      };
+
+      socket.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        socket.close();
+      };
+    }
+
+    // Start fetching data and connect to WebSocket
+    fetchData().then(() => {
+      catchingUp = false;
+      updateLeaderboard();
+      connectLeaderboardWebSocket();
+    });
+  </script>
+</body>
+
+</html>
