@@ -85,6 +85,14 @@
       isTestnet = true;
     } else if (moreTpsRound?.endsWith(".near")) {
       isTestnet = false;
+    } else if (search.has("network")) {
+      if (search.get("network") === "mainnet") {
+        isTestnet = false;
+      } else if (search.get("network") === "testnet") {
+        isTestnet = true;
+      } else {
+        location.href = "https://tps.intar.tech";
+      }
     } else if (location.href.includes("https://tps.intear.tech")) {
       isTestnet = false;
     } else {
