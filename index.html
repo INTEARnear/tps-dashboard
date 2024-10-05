@@ -319,6 +319,10 @@
     function connectWebSocket() {
       const ws = new WebSocket(`${wsEventsApiHost}/${wsEventsApiEvents}/block_info`);
 
+      ws.onopen = (event) => {
+        ws.send(JSON.stringify({}))
+      }
+
       ws.onmessage = (event) => {
         const block = JSON.parse(event.data);
         updateChart(block);
