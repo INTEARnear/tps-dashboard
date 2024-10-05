@@ -108,10 +108,9 @@
     } else {
       isTestnet = true;
     }
-    const isDebug = !location.href.includes("https://tps.intear.tech");
-    const eventsApiHost = isDebug ? "http://localhost:8080" : "https://events.intear.tech";
+    const eventsApiHost = "https://events.intear.tech";
     const eventsApiQuery = isTestnet ? "query-testnet" : "query";
-    const wsEventsApiHost = isDebug ? "ws://localhost:4242" : "wss://ws-events.intear.tech";
+    const wsEventsApiHost = "wss://ws-events.intear.tech";
     const wsEventsApiEvents = isTestnet ? "events-testnet" : "events";
 
     const ctx = document.getElementById('metricsChart').getContext('2d');
@@ -306,9 +305,8 @@
     async function fetchInitialData() {
       const now = Date.now();
       const initialBlocks = 60;
-      const dataStart = now - initialBlocks * 1000;
-      const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/block_info?blocks=${initialBlocks}&start_block_timestamp_nanosec=${dataStart * 1000000}`);
-      blockData = await response.json();
+      const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/block_info?limit=${initialBlocks}&pagination_by=Newest`);
+      blockData = await response.json().then(data => data.map(d => d.event).reverse());
 
       chart.data.labels = blockData.map(b => b.block_height);
       chart.data.datasets[0].data = blockData.map(b => b.transaction_count);
@@ -366,10 +364,10 @@
         participantScores.set(participant, currentScore + 1);
       }
 
-      async function fetchData(nanosec = 0) {
+      async function fetchData(afterId = 0) {
         try {
-          const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/moretps?blocks=1&start_block_timestamp_nanosec=${nanosec}&round_parent_account_id=${moreTpsRound}`);
-          const data = await response.json();
+          const response = await fetch(`${eventsApiHost}/${eventsApiQuery}/moretps?limit=200&pagination_by=AfterId&id=${afterId}&round_parent_account_id=${moreTpsRound}`).then(res => res.json());
+          const data = response.map(d => d.event);
 
           data.forEach(item => {
             if (item.is_success) {
@@ -379,8 +377,8 @@
           updateLeaderboard();
 
           if (data.length > 0) {
-            const lastTimestamp = BigInt(data[data.length - 1].block_timestamp_nanosec);
-            await fetchData(lastTimestamp + 1n);
+          	const lastId = response[response.length - 1].id;
+            await fetchData(lastId);
           }
         } catch (error) {
           console.error('Error fetching data:', error);
